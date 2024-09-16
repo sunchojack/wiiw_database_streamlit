@@ -39,10 +39,11 @@ select = dplyr::select
 knitr::opts_chunk$set(echo = TRUE)
 # setwd("C:/Users/Arsenev/Desktop/PyProjects/wiiw_database_steamlit")
 
+year_range <- c(2010, 2020)
 streamlit_output = read.csv('streamlit_out.csv') 
-streamlit_output = filter(streamlit_output, LID != 'USERVAR')
-ids = as.vector(streamlit_output['LID'])
-ids = c(ids$LID)
+streamlit_output = filter(streamlit_output, lid != 'USERVAR')
+ids = as.vector(streamlit_output['lid'])
+ids = c(ids$lid)
 ```
 
 ```{r}
@@ -101,7 +102,6 @@ round2 = function(x, n) {
 
 # exog <- c(144396, 77811, 77812, 144399, 101874)
 # ids <- append(ids, exog)
-year_range <- c(2006, 2007)
 
 # Use foreach to download multiple datasets simultaneously
 data_list <- foreach(id = ids, .packages = c('xml2', 'doParallel', 'tidyr', 'plyr', 'dplyr', 'stringr')) %dopar% get_wiiw_data(id, year_range)
@@ -122,7 +122,12 @@ data <- merge(
 
 library(stringi)
 
-cat("Unknown year(s):", paste("[", unique(data$year[is.na(data$year)]), "]", collapse = ", "), "removed.")
+if (any(is.na(data$year))) {
+  unknown_years <- unique(data$year[is.na(data$year)])
+  cat("Unknown year(s):", paste("[", unknown_years, "]", collapse = ", "), "removed.\n")
+} else {
+  cat('All good\n')
+}
 
 shortdata <- data %>%
   select(c("lid", "year", "value", "Reporter", "Indicator", "Unit")) %>%
@@ -151,3 +156,395 @@ if (nrow(ERROR_MESSAGE) > 0) {
 }
 
 ```
+
+
+```{r}
+gettogether = streamlit_output
+gettogether = gettogether %>% mutate(indicator_unit = paste0(indicator, unit))
+# unique_indicator_units <- unique(gettogether$indicator_unit)
+# n <- length(unique_indicator_units)
+# 
+# unique_pool <- stri_rand_strings(n * 2, length = 15, pattern = "[a-z]")
+# unique_pool <- unique(unique_pool)[1:n]
+# 
+# indicator_unit_dictionary = data.frame(indicator_unit = unique_indicator_units, identificator = NA, stringsAsFactors = FALSE)
+# 
+# for (i in 1:n) {
+#   indicator_unit_dictionary$identificator[i] <- unique_pool[i]
+# }
+# 
+# gettogether = left_join(gettogether, indicator_unit_dictionary, by = "indicator_unit")
+# 
+# shortdata = shortdata %>% pivot_wider(id_cols = year, names_from = indicator_unit, values_from = value)
+# 
+# # Assuming user_vars$ind_unit is a vector of column names
+# new_columns <- user_vars$indicator_unit[!user_vars$indicator_unit %in% names(shortdata)]
+# 
+# # Check if columns exist and create if not
+# for (col in new_columns) {
+#   if (!(col %in% names(shortdata))) {
+#     shortdata[[col]] <- NA  # You can replace NA with a default value if needed
+#   }
+# }
+# 
+# for (col in names(shortdata)) {
+#   if (col %in% indicator_unit_dictionary$indicator_unit) {
+#     new_col <- indicator_unit_dictionary$identificator[indicator_unit_dictionary$indicator_unit == col]
+#     names(shortdata)[names(shortdata) == col] <- new_col
+#   }
+# }
+```
+
+################################################################################################################
+
+SEM Calculation
+
+
+# Formula Transformation
+```{r}
+cutoff = '2021Q4'
+
+formulas_file = "MK model nov 2023 no form.docx"
+word_content = read_docx(path = formulas_file)
+formulas = docx_summary(word_content)
+formulas <- formulas %>% filter(content_type == "paragraph") %>% dplyr::select(text) %>% filter(text != "") %>% mutate(text = str_to_lower(text))
+
+formulas_orig = formulas
+```
+
+```{r}
+# data_file <- "C:/Users/Arsenev/Desktop/forecast_tool/newinputs/RS data Nov 2023 no form.xlsx"
+
+initial_data = shortdata
+data = initial_data
+
+```
+
+```{r}
+formulas = formulas_orig
+
+for (i in seq_along(gettogether$user_var)) {
+  formulas$text <- gsub(paste0("\\b", gettogether$user_var[i], "\\b"), gettogether$indicator_unit[i], formulas$text)
+}
+
+convert_lag_notation <- function(formula) {
+  # Regular expression to identify "( - n )" patterns
+  pattern <- "(\\w+)\\(\\s*-\\s*(\\d+)\\s*\\)"
+  
+  # Loop through the formula and replace the patterns with the appropriate lag notation
+  formula <- gsub(pattern, "`lag(\\1, \\2)`", formula)
+  return(formula)
+}
+
+# Apply the function to each cell of the dataframe
+formulas[] <- lapply(formulas, convert_lag_notation)
+
+```
+
+```{r}
+lhs_vars <- formulas %>%
+  mutate(lhs = str_extract(text, "^(.*?)=")) %>% 
+  mutate(lhs = trimws(lhs)) %>%
+  mutate(lhs = gsub("=", "", lhs)) %>%
+  select(lhs) %>%
+  distinct()
+  
+formulas = formulas %>%
+  mutate(text = gsub("=", "-(", text)) %>%
+  mutate(text = paste0(text, ")"))
+
+```
+
+
+# Loop through the lag expressions and create the corresponding lag variables
+```{r}
+lags_in_text = str_extract_all(formulas$text, "lag\\([^,]+,\\s*\\d+\\)")
+
+if (length(unlist(lags_in_text)) > 0) {
+  cat("Lags detected:", unlist(lags_in_text), "\n")
+} else {
+  cat("No lags detected in formulas. Lag creation skipped.")
+}
+
+list_to_df <- function(lst) {
+  rows <- lapply(lst, function(x) {
+    if (length(x) > 0) {
+      data.frame(value = x)
+    } else {
+      data.frame(value = NA)
+    }
+  })
+  do.call(rbind, rows)
+}
+
+lags_df = list_to_df(lags_in_text)
+lags_df = lags_df %>% na.omit() %>% distinct(value)
+
+lags_df$value <- gsub("lag\\(([^,]+),", "lag(shortdata$\\1,", lags_df$value)
+
+
+if (nrow(lags_df) > 0) {
+  for (i in 1:nrow(lags_df)) {
+    lag_expr <- lags_df$value[i]
+    print(lag_expr)
+    new_var_name <- lags_df$value[i]
+    print(new_var_name)
+    shortdata[[new_var_name]] <- eval(parse(text = lag_expr))
+  }
+}
+
+
+# Removing "data$" so that the formulas work
+col_names <- colnames(shortdata)
+new_col_names <- gsub("shortdata\\$", "", col_names)
+colnames(shortdata) <- new_col_names
+```
+
+```{r}
+initial_data = shortdata
+
+xdata <- initial_data %>% 
+  filter(year < cutoff)
+
+pred_data <- initial_data %>%
+  filter(year >= cutoff)
+
+
+print(cutoff)
+```
+
+```{r}
+eq_strs = formulas
+eq_strs <- as.character(eq_strs$text)
+
+equations_text <- paste(eq_strs, collapse = "\n")
+
+# Print the concatenated text with cat
+cat("Equations to be estimated:\n", equations_text, "\n")
+
+```
+
+
+## First iteration:
+- cutoff at the first unknown year-quarter
+- initial guess based on previous Q values
+```{r}
+workdata = initial_data
+
+cutoff_index <- which(workdata$year == cutoff)
+
+exog_row <- workdata[cutoff_index, ]
+exog_row <- exog_row[, !sapply(exog_row, function(col) any(is.na(col)))]
+
+eq_test <- function(x, eq_strs) {
+  # Define Independent Vars
+  for (i in 1:nrow(lhs_vars)) {
+    assign(lhs_vars$lhs[i], x[i])
+  }
+  
+  # Set Exogenous Vars
+  for (i in 1:ncol(exog_row)) {
+    col_name <- colnames(exog_row)[i]  # Fixing the syntax here
+    var_value <- unlist(as.vector(exog_row[1, i]))
+
+    if (!is.finite(var_value)) {
+      next
+    }
+    
+    assign(col_name, var_value, envir = .GlobalEnv)
+  }
+  
+  eqs <- sapply(eq_strs, function(eq_str) {
+    result <- tryCatch(
+      {
+        eval(parse(text = eq_str))
+      },
+      error = function(e) {
+        cat("Error in equation:", eq_str, "\n")
+        cat("Error message:", conditionMessage(e), "\n")
+        return(rep(NA, length(x)))  # Return NA-filled vector if there's an error
+      }
+    )
+    
+    if (any(is.na(result))) {
+      cat("NA/NaN result in equation:", eq_str, "\n")
+    }
+    
+    return(result)
+  })
+  
+  return(eqs)
+}
+
+lhs_vars$row_number <- 1:nrow(lhs_vars)
+lhs_vars$lhs = str_trim(gsub("`", "", lhs_vars$lhs))
+
+ini_guess_prevdata <- xdata[cutoff_index - 1, ] %>%
+  dplyr::select(any_of(str_trim(lhs_vars$lhs)))
+
+which_ini_NA <- which(is.na(ini_guess_prevdata[1, ]))
+cat("NA in initial guess:", colnames(ini_guess_prevdata)[which_ini_NA], "\n")
+
+ini_guess_prevdata <- xdata[cutoff_index-1, ] %>%  # !!!!!!!!! hardcoded initial guesses
+  dplyr::select(any_of(lhs_vars$lhs))
+
+ini_guess_prevdata <- ini_guess_prevdata[, lhs_vars$lhs] # ??reorder in the way according to the lhs variables in the equations
+ini_guess_v <- as.vector(ini_guess_prevdata) %>% unlist() 
+ini_guess_v <- as.numeric(ini_guess_v)
+
+cat("Initial guess:\n", colnames(ini_guess_prevdata), "\n", ini_guess_v, ".\n If NAs are spotted, check the data. Missing series?")
+
+# Use nleqslv to find the solution
+solution <- nleqslv(x = ini_guess_v, fn = function(x) eq_test(x, eq_strs),
+                    method = "Newton", jacobian = TRUE)
+
+solution$x
+
+output <- data.frame(matrix(solution$x, nrow = 1))
+true_colnames = colnames(ini_guess_prevdata)
+colnames(output) <- true_colnames
+```
+
+# Add the forecasted dependent variables to the overall data; recalculate lags with new input available
+```{r}
+workdata_1 = workdata
+workdata_1[cutoff_index, colnames(output)] <- output
+```
+
+
+# 30.10
+## One-step-ahead:
+- keep coeffs and equations the same
+- use new prediction as initial guess
+- loop through
+
+```{r}
+next_guess = solution$x
+workdata_out = workdata_1
+
+forecast_rows = nrow(workdata_1) - cutoff_index
+# find how many rows we need to iterate over: all rows starting from the first unknown;
+# here -- last data 2024Q4, line 92
+
+for (j in 1:forecast_rows) { 
+
+  # Find the index of the cutoff date in the workdata_out dataset
+  # cutoff_index <- which(as.yearqtr(workdata_out$time) == as.yearqtr(cutoff))
+  new_index <- cutoff_index + j
+  exog_row <- workdata_out[new_index, ]
+  
+  # exog_row <- exog_row[, !sapply(exog_row, function(col) any(is.na(col)))]
+  
+  
+  next_eq_test <- function(x, eq_strs) {
+    # Define Independent Vars
+    for (i in 1:nrow(lhs_vars)) {
+      assign(lhs_vars$lhs[i], x[i])
+    }
+    
+    # gdp_yoy <- x[20] # !!!!!!!!!!
+    # `emp/lag(emp,4)` <- x[3] # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    
+    
+    # Second loop for exog_row
+    for (i in 1:ncol(exog_row)) {
+      colnames = colnames(exog_row)
+      var_value = unlist(as.vector(exog_row[1, i]))
+  
+      if (!is.finite(var_value)) {
+      next
+      }
+  
+      # Directly assign values to names even if they are "log(something)"
+      assign(colnames[i], var_value, envir = .GlobalEnv)
+  
+      # # Check for "log(something)" and exponentiate
+      # if (grepl("log\\((.+)\\)", colnames[i])) {
+      #   matches <- regmatches(colnames[i], regexpr("log\\((.+)\\)", colnames[i]))
+      #   var_name_inside_log <- gsub("log\\((.+)\\)", "\\1", matches)
+      #   exp_value = exp(var_value)
+      #   if (is.finite(exp_value)) {
+      #     assign(var_name_inside_log, exp_value, envir = .GlobalEnv)
+      #   }
+      # } else {
+      #   # For non-log variables, create both exp and log versions
+      #   exp_value = exp(var_value)
+      #   log_value = log(var_value)
+      #   if (is.finite(exp_value)) {
+      #     assign(paste0("exp(", colnames[i], ")"), exp_value, envir = .GlobalEnv)
+      #   }
+      #   if (is.finite(log_value)) {
+      #     assign(paste0("log(", colnames[i], ")"), log_value, envir = .GlobalEnv)
+      #   }
+      # }
+      # 
+      
+      # NAs can be safely ignored but lets not run the thing for everything for now 
+  
+    }
+    
+    #  DIRECT INPUT FOR TRANSFORMED EXOGENOUS OR NON-MAPPED LOGS OF ENDOGENOUS
+    # cpi = exp(`log(cpi)`)
+    # emp = `emp/lag(emp,4)`*`lag(emp,4)`
+    # `log(emp)` = log(emp)
+    # unemp = exp(`log(unemp)`)
+    
+      # Equations
+    eqs <- sapply(eq_strs, function(eq_str) eval(parse(text = eq_str)))
+    return(eqs)
+    
+    print(x)
+  }
+  
+  
+  next_solution <- nleqslv(x = next_guess, fn = function(x) next_eq_test(x, eq_strs),
+                      method = "Newton", jacobian = F)
+  
+  
+  output <- data.frame(matrix(next_solution$x, nrow = 1))
+  true_colnames = colnames(ini_guess_prevdata)
+  colnames(output) <- true_colnames
+  # print(output)
+  
+  next_guess = next_solution$x
+  
+  workdata_out[cutoff_index + j, colnames(output)] <- output
+  
+  # workdata_out$cpi = exp(workdata_out$`log(cpi)`)
+  # # workdata_out$emp = workdata_out$`emp/lag(emp,4)`*workdata_out$`lag(emp,4)`
+  # workdata_out$emp = workdata_out$`emp/lag(emp,4)` * unlist(workdata_out$`lag(emp,4)`)
+  # workdata_out$`log(emp)` = log(workdata_out$emp)
+  # workdata_out$unemp = exp(workdata_out$`log(unemp)`)
+  
+  # for (l in 1:nrow(lags_df)) {
+  #   lag_expr <- gsub("\\bworkdata_1\\$", "workdata_out$", lags_df$value[l], perl = TRUE)
+  #   var_name <- gsub("\\bworkdata_out\\$", "", lag_expr, perl = TRUE)
+  #   var_name <- gsub("\\s", "", var_name)
+  #   
+  #   # Calculate lag value for the entire column
+  #   lagged_values <- with(workdata_out, eval(parse(text = lag_expr)))
+  #   
+  #   # Replace NA values with the calculated lagged values in the specified column
+  #   workdata_out[[var_name]] <- ifelse(is.na(workdata_out[[var_name]]), lagged_values, workdata_out[[var_name]])
+  # }
+
+
+}
+
+```
+
+
+```{r}
+# workdata_out_rounded <- workdata_out %>%
+#   mutate_if(is.numeric, ~round(., 2)) %>%
+#   filter(as.yearqtr(time) >= as.yearqtr(cutoff))
+
+workdata_out_rounded <- workdata_out %>%
+  mutate_if(is.numeric, ~round(., 2))
+
+s.workdata_out_rounded <- workdata_out_rounded[, true_colnames]
+
+# library(readxl)
+write.xlsx(s.workdata_out_rounded, "AUTO_FORECAST_TOOL_results.xlsx")
+```
+

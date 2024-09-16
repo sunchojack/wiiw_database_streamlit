@@ -9,6 +9,7 @@ from flask import session
 from streamlit_extras.grid import grid
 from st_aggrid import AgGrid, GridOptionsBuilder
 import warnings
+import openpyxl
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 st.set_page_config(layout="wide")
