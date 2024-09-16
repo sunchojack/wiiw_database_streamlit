@@ -1,0 +1,153 @@
+---
+title: "title"
+author: "Alex"
+date: "2023-11-30"
+output: html_document
+---
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+###########################################################################################################################################
+
+Database Input
+
+# !! MONTHLY
+
+```{r setup, include=FALSE}
+#from lower chunks
+library(nleqslv)
+library(xfun)
+library(tidyverse)
+library(tidytext)
+library(officer)
+library(readxl)
+library(xlsx)
+library(stringr)
+library(gsubfn)
+library(sem)
+library(janitor)
+library(dplyr)
+library(zoo)
+
+select = dplyr::select
+
+`%!in%` <- function(x, table) {
+  !x %in% table
+}
+```
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# setwd("C:/Users/Arsenev/Desktop/PyProjects/wiiw_database_steamlit")
+
+streamlit_output = read.csv('streamlit_out.csv') 
+streamlit_output = filter(streamlit_output, LID != 'USERVAR')
+ids = as.vector(streamlit_output['LID'])
+ids = c(ids$LID)
+```
+
+```{r}
+library(xml2)
+library(doParallel)
+library(tidyr)
+library(plyr)
+library(dplyr)
+
+registerDoParallel(cores = 6) # Register parallel backend with number of cores
+
+# Create a function to download data from the WiiW API.
+get_wiiw_data <- function(id, year_range) {
+  url <- paste0("http://dbglobal.wiiw.ac.at/index.php?action=data&id=", id, "&type=M&from=", year_range[1], "&to=", year_range[2])
+  data <- read_xml(url) %>% as_list() %>% as_tibble() %>% unnest_wider(data) %>% unnest(cols = names(.)) %>% unnest(cols = names(.)) %>% readr::type_convert()
+  
+  if(nrow(data) > 0) {
+    data <- cbind(lid = id, data)
+    return(data)
+  }
+  
+}
+
+# Create a function to download metadata from the WiiW API.
+get_wiiw_metadata <- function(id) {
+  url <- paste0("http://dbglobal.wiiw.ac.at/index.php?action=labelref&id=", id)
+  data <- read_xml(url) %>% as_list() %>% as_tibble() %>% unnest_wider(label) %>% unnest(cols = names(.)) %>% unnest(cols = names(.)) %>% readr::type_convert()
+  data <- cbind(lid = id, data) %>% filter(!is.na(rlong)) %>% mutate(
+    text1 = str_replace_all(URLdecode(text1), " ", "_"),
+    rlong = URLdecode(rlong)
+  ) %>% pivot_wider(id_cols = c("lid"), names_from = "text1", values_from = "rlong")
+  return(data)
+}
+
+# get the data in parallel
+get_wiiw_data_parallel <- function(ids, year_range) {
+  data_list <- foreach(id = ids, .packages = 'xml2') %dopar% get_wiiw_data(id, year_range)
+  return(rbindlist(data_list, fill = TRUE))
+}
+
+# get the data in parallel
+get_wiiw_metadata_parallel <- function(ids) {
+  metadata_list <- foreach(id = ids, .packages = 'xml2') %dopar% get_wiiw_metadata(id)
+  return(rbindlist(metadata_list, fill = TRUE))
+}
+
+# rounding function to handle precision issues
+round2 = function(x, n) {
+  posneg = sign(x)
+  z = abs(x) * 10^n
+  z = z + 0.5 + sqrt(.Machine$double.eps)
+  z = trunc(z)
+  z = z/10^n
+  z * posneg
+}
+
+# exog <- c(144396, 77811, 77812, 144399, 101874)
+# ids <- append(ids, exog)
+year_range <- c(2006, 2007)
+
+# Use foreach to download multiple datasets simultaneously
+data_list <- foreach(id = ids, .packages = c('xml2', 'doParallel', 'tidyr', 'plyr', 'dplyr', 'stringr')) %dopar% get_wiiw_data(id, year_range)
+                     
+metadata_list <- foreach(id = ids, .packages = c('xml2', 'doParallel', 'tidyr', 'plyr', 'dplyr', 'stringr')) %dopar% get_wiiw_metadata(id)
+
+# Combine all data into a single data frame
+data <- do.call(rbind, data_list)
+metadata <- do.call(plyr::rbind.fill, metadata_list)
+
+# merge
+data <- merge(
+  data,
+  metadata,
+  all = TRUE
+)
+
+
+library(stringi)
+
+cat("Unknown year(s):", paste("[", unique(data$year[is.na(data$year)]), "]", collapse = ", "), "removed.")
+
+shortdata <- data %>%
+  select(c("lid", "year", "value", "Reporter", "Indicator", "Unit")) %>%
+  mutate(indicator_unit = str_c(Indicator, Unit, sep = " || ")) %>%
+  select(-c("Indicator", "Unit")) %>%
+  mutate(indicator_unit = paste0("'", indicator_unit, "'")) 
+# %>% 
+  # mutate(year = paste0(year, "Q", as.numeric(quarter)))
+
+
+library(tibble)
+
+ERROR_MESSAGE <- shortdata %>%
+  group_by(indicator_unit) %>%
+  filter(is.na(year) | is.na(value)) %>%
+  tibble::as_tibble()
+
+
+if (nrow(ERROR_MESSAGE) > 0) {
+  if (is.data.frame(ERROR_MESSAGE)) {
+    cat("ERROR: Some data points are missing year or value. Please check the following data points:\n")
+    print(ERROR_MESSAGE)
+  } else {
+    stop("ERROR: Some data points are missing year or value. Please check the data.")
+  }
+}
+
+```
