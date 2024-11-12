@@ -1,0 +1,16 @@
+Index: baseapp.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/baseapp.py b/baseapp.py
+--- a/baseapp.py	
++++ b/baseapp.py	
+@@ -197,6 +197,7 @@
+                 if not var_blocked:
+                     my_grid.selectbox('eop', options=['avg', 'eop'], index=0,
+                                                    key=f'periodflag_{value}', label_visibility='hidden')
++                    
+                 else:
+                     my_grid.text(f"USERVAR")
+                     st.session_state[f"periodflag_{value}"] = "USERVAR"

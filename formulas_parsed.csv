@@ -1,0 +1,61 @@
+type,variable
+exp,`exp(lcpi)`
+exp,`exp(lunemp)`
+lag,"`lag(ca_gdp, 1)`"
+lag,"`lag(cpi, 4)`"
+lag,"`lag(emp, 4)`"
+lag,"`lag(emp_yoy, 1)`"
+lag,"`lag(exp_gdp_yoy, 1)`"
+lag,"`lag(exp_nom_yoy, 1)`"
+lag,"`lag(gov_bal, 1)`"
+lag,"`lag(gov_cons_yoy, 1)`"
+lag,"`lag(imp_nom_yoy, 1)`"
+lag,"`lag(ind_yoy, 1)`"
+lag,"`lag(ir, 1)`"
+lag,"`lag(lcpi, 1)`"
+lag,"`lag(loans_hh, 1)`"
+lag,"`lag(lunemp, 1)`"
+lag,"`lag(pub_debt, 1)`"
+lag,"`lag(unemp_rate, 1)`"
+lag,"`lag(wages_yoy, 1)`"
+log,`log(emp)`
+log,`log(eu_hicp)`
+log,`log(oil)`
+x,ca_gdp
+x,cons_share
+x,cons_yoy
+x,cpi
+x,cpi_yoy
+x,dum_2022
+x,dum_lfs
+x,emp
+x,emp_yoy
+x,eu_gdp_yoy
+x,eu_hicp_yoy
+x,eu_ir
+x,exp_gdp_share
+x,exp_gdp_yoy
+x,exp_nom_yoy
+x,gdp_yoy
+x,gov_bal
+x,gov_cons_share
+x,gov_cons_yoy
+x,gov_exp_yoy
+x,gov_rev_yoy
+x,imp_gdp_share
+x,imp_gdp_yoy
+x,imp_nom_yoy
+x,ind_yoy
+x,inv_share
+x,inv_yoy
+x,ir
+x,lcpi
+x,lemp
+x,leu_hicp
+x,loans_hh
+x,loil
+x,lunemp
+x,pub_debt
+x,unemp
+x,unemp_rate
+x,wages_yoy

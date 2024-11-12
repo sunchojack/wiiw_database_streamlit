@@ -1,0 +1,41 @@
+user_var,reporter,indicator,unit,lid,PeriodFlag
+ca_gdp,North Macedonia,(m) Current account,in % of GDP,88741,avg
+cons_share,North Macedonia,(m) Household final consumption expenditure,in % of GDP,90346,avg
+cons_yoy,North Macedonia,(m) Household final consumption expenditure,"NCU m, 2015 reference prices (prev. year prices, incl. 'euro fixed' series)",90874,avg
+cpi,North Macedonia,(m) Consumer prices,"index, monthly average, 2015 = 100",91641,avg
+cpi_yoy,USERVAR,USERVAR,USERVAR,USERVAR,USERVAR
+dum_2022,USERVAR,USERVAR,USERVAR,USERVAR,USERVAR
+dum_lfs,USERVAR,USERVAR,USERVAR,USERVAR,USERVAR
+emp,North Macedonia,"(m) Employment, LFS","th persons, period average",32655,avg
+emp_yoy,USERVAR,USERVAR,USERVAR,USERVAR,USERVAR
+eu_gdp_yoy,EU - 27 countries (from 2020),(m) Gross domestic product total,real growth rate to corresponding period of previous year in %,144396,avg
+eu_hicp,European Union evolutionary,(m) Consumer prices,"index, monthly average, 2015 = 100",77811,avg
+eu_hicp_yoy,European Union evolutionary,(m) Consumer prices,"index, corresponding period of previous year = 100",77812,avg
+eu_ir,Euro area evolutionary,(m) Central bank policy rate,"% p.a., period average",144399,avg
+exp_gdp_share,North Macedonia,(m) Exports of goods and services,in % of GDP,90500,avg
+exp_gdp_yoy,North Macedonia,(m) Exports of goods and services,"NCU m, 2015 reference prices (prev. year prices, incl. 'euro fixed' series)",90984,avg
+exp_nom_yoy,North Macedonia,"(m) 1.A.a. Goods exports, fob, credit",EUR m,87271,avg
+gdp_yoy,North Macedonia,(m) Gross domestic product total,"NCU m, 2015 reference prices (prev. year prices, incl. 'euro fixed' series)",88656,avg
+gov_bal,North Macedonia,(m) General gov. budget - balance,in % of GDP,89224,avg
+gov_cons_share,North Macedonia,(m) Government final consumption expenditure,in % of GDP,90390,avg
+gov_cons_yoy,North Macedonia,(m) Government final consumption expenditure,"NCU m, 2015 reference prices (prev. year prices, incl. 'euro fixed' series)",90918,avg
+gov_exp_yoy,North Macedonia,(m) General gov. budget - expenditures,NCU m (incl. 'euro fixed' series),838,avg
+gov_rev_yoy,North Macedonia,(m) General gov. budget - revenues,NCU m (incl. 'euro fixed' series),822,avg
+imp_gdp_share,North Macedonia,(m) Imports of goods and services,in % of GDP,90522,avg
+imp_gdp_yoy,North Macedonia,(m) Imports of goods and services,"NCU m, 2015 reference prices (prev. year prices, incl. 'euro fixed' series)",91006,avg
+imp_nom_yoy,North Macedonia,"(m) 1.A.a. Goods imports, fob, debit",EUR m,87308,avg
+ind_yoy,North Macedonia,(m) Industrial output (BCD - NACE Rev. 2),"index real, corresponding period of previous year = 100",56632,avg
+inv_share,North Macedonia,(m) Gross capital formation,in % of GDP,90412,avg
+inv_yoy,North Macedonia,(m) Gross capital formation,"NCU m, 2015 reference prices (prev. year prices, incl. 'euro fixed' series)",90940,avg
+ir,North Macedonia,(m) Central bank policy rate,"% p.a., end of period",788,avg
+lcpi,USERVAR,USERVAR,USERVAR,USERVAR,USERVAR
+lemp,USERVAR,USERVAR,USERVAR,USERVAR,USERVAR
+leu_hicp,USERVAR,USERVAR,USERVAR,USERVAR,USERVAR
+loans_hh,North Macedonia,(m) Loans households (S14),"index nominal, corresponding period of previous year = 100",89620,avg
+loil,USERVAR,USERVAR,USERVAR,USERVAR,USERVAR
+lunemp,USERVAR,USERVAR,USERVAR,USERVAR,USERVAR
+oil,,,,101874,avg
+pub_debt,North Macedonia,"(m) General government gross debt, total",in % of GDP,140881,avg
+unemp,North Macedonia,"(m) Unemployment, LFS","th persons, period average",32685,avg
+unemp_rate,North Macedonia,"(m) Unemployment rate, LFS","in %, period average",32702,avg
+wages_yoy,North Macedonia,(m) Average monthly gross wages total,"index nominal, corresponding period of previous year = 100",320,avg

@@ -257,7 +257,7 @@ trydata = left_join(shortdata_dateformatted, gettogether, by = c('lid')) %>%
 
 trydata = trydata %>% pivot_wider(id_cols = year, names_from = variable, values_from = value)
 
-shortdata = trydata
+shortdata = trydata %>% arrange(year)
 
 for (col_name in streamlit_USERVAR) {
   shortdata[[col_name]] = NA
@@ -277,7 +277,10 @@ SEM Calculation
 ```{r}
 streamlit_formulas_path = "formulas_parsed.csv"
 streamlit_formulas <- read_csv(streamlit_formulas_path)
+```
 
+05.11.24 --- USING DEFAULT FOR NOW, REPLACE WITH STREAMLIT INPUT LATER
+```{r}
 parsed_formulas_path = "cleaned_formulas_default.docx"
 word_content = read_docx(path = parsed_formulas_path)
 formulas = docx_summary(word_content)
@@ -312,69 +315,28 @@ shortdata_backup = shortdata
 
 
 ```{r}
-shortdata = shortdata_backup
+# initial_data = shortdata
+# 
+# xdata <- initial_data %>% 
+#   filter(year < cutoff)
+# 
+# pred_data <- initial_data %>%
+#   filter(year >= cutoff)
+# 
+# 
+# print(cutoff)
 
-print(streamlit_formulas)
-
-needs_eval <- streamlit_formulas %>%
-  filter(type != 'x') %>%
-  mutate(variable = gsub("\\(([^,]+)", "(shortdata$\\1", variable)) %>%
-  select(variable) %>%
-  unlist()
-
-for (i in 1:length(needs_eval)) {
-  new_var_name = needs_eval[i]
-  if (new_var_name %!in% names(shortdata)) {
-    shortdata[[new_var_name]] = NA
-  }
-}
-
-remaining_vars <- needs_eval
-max_iterations <- 10
-iterations <- 0
-
-for (i in 1:length(needs_eval)) {
-  new_var <- needs_eval[i]
-  expression <- gsub('`', '', needs_eval[i])
-  print(expression)
-  
-  tryCatch({
-    shortdata[[new_var]] <- eval(parse(text = expression))
-    remaining_vars <- setdiff(remaining_vars, new_var)
-  }, error = function(e) {
-    print(e)
-  })
-}
-
-if (length(remaining_vars) > 0) {
-  warning("Some variables could not be computed.")
-}
-
-# Removing "data$" so that the formulas work
-col_names <- colnames(shortdata)
-new_col_names <- gsub("shortdata\\$", "", col_names)
-colnames(shortdata) <- new_col_names
-
-view(shortdata)
-```
-
-
-```{r}
 initial_data = shortdata
 
-xdata <- initial_data %>% 
-  filter(year < cutoff)
-
-pred_data <- initial_data %>%
-  filter(year >= cutoff)
-
-
-print(cutoff)
+# start from the start
+xdata <- initial_data[1:2,]
+pred_data <- initial_data[3,]
 ```
 
 ```{r}
 eq_strs = formulas
 eq_strs <- as.character(eq_strs$text)
+
 
 equations_text <- paste(eq_strs, collapse = "\n")
 
@@ -385,98 +347,96 @@ for (i in 1:nrow(formulas)) {
 
 ```
 
+```{r}
+fileConn<-file("raw_formulas.txt")
+writeLines(equations_text, fileConn)
+close(fileConn)
+
+write_csv(initial_data, 'raw_initial_data.csv')
+```
+
 
 ## First iteration:
 - cutoff at the first unknown year-quarter
 - initial guess based on previous Q values
-```{r}
-workdata = initial_data
-# modified for testing reason!!! REMOVE LATER
 
-backpropagate_NAs <- function(df, default_value = 1, exclude_cols = c("year")) {
-  # Identify numeric columns, excluding specified columns
-  numeric_cols <- sapply(df, is.numeric)
-  numeric_cols <- setdiff(names(which(numeric_cols)), exclude_cols)
+Eval-parse the non-initial variables
+```{r}
+initial_data_backup = initial_data
+
+streamlit_vars_to_eval = streamlit_formulas %>%
+  filter(type != 'x') %>% 
+  .$variable
+
+streamlit_vars_to_eval <- gsub("\\(", "(initial_data$", streamlit_vars_to_eval, fixed = FALSE)
+parse_testval = eval(parse(text = gsub("`", "", "`lag(initial_data$imp_nom_yoy, 1)`")))
+parse_testname = "`lag(initial_data$imp_nom_yoy, 1)`"
+assign(parse_testname, parse_testval)
+
+
+run_parse_eval = function(iters = 1) {
   
-  # Separate the last row
-  last_row <- df[nrow(df), , drop = FALSE]
-  df_without_last <- df[-nrow(df), ]
+  run_df = data.frame(matrix(ncol = 0, nrow = nrow(initial_data)))
   
-  for (col in numeric_cols) {
-    # If the entire column (excluding last row) is NA, fill with default value
-    if (all(is.na(df_without_last[[col]]))) {
-      df_without_last[[col]] <- default_value
-    } else {
-      # Find last non-NA value for each NA
-      last_known <- na.locf(df_without_last[[col]], fromLast = TRUE, na.rm = FALSE)
-      
-      # Replace NAs with last known value or default value
-      df_without_last[[col]] <- ifelse(is.na(df_without_last[[col]]), 
-                                       ifelse(is.na(last_known), default_value, last_known),
-                                       df_without_last[[col]])
+  for (iter in 1:iters) {
+
+    for (i in 1:length(streamlit_vars_to_eval)) {
+      out_streamlit_parsed_var_PHOLDER = tryCatch(
+        {
+          globalname_streamlit_parsed_var = gsub("`", "", streamlit_vars_to_eval[i])
+          globalname_streamlit_parsed_var = str_remove_all(globalname_streamlit_parsed_var, "initial_data\\$")
+          streamlit_parsed_var_value = eval(parse(text = gsub("`", "", streamlit_vars_to_eval[i])))
+          print(globalname_streamlit_parsed_var)
+          print(streamlit_parsed_var_value)
+          assign(globalname_streamlit_parsed_var, streamlit_parsed_var_value, envir = .GlobalEnv)
+          dataname_streamlit_parsed_var = paste0("`", globalname_streamlit_parsed_var, "`")
+          run_df[[globalname_streamlit_parsed_var]] = streamlit_parsed_var_value
+          
+        },
+        error = function(e) {
+          cat("\n", "Error with var:", streamlit_vars_to_eval[i], "\n")
+          cat("Error message:", conditionMessage(e), "\n")
+          return(NA)
+        }
+      )
     }
+  
+  cat("Did", iter, "################################################################## \n")  
+      
   }
   
-  # Recombine the processed data with the untouched last row
-  df_filled <- rbind(df_without_last, last_row)
+  return(run_df)
   
-  return(df_filled)
 }
 
-workdata_backprop = backpropagate_NAs(workdata)
-workdata = workdata_backprop %>% ungroup()
-
-
-cutoff_index <- which(workdata$year == cutoff) # add warnings when cutoff and date range do not intersect
-workdata = workdata %>% select(-year)
-
-exog_vars <- setdiff(colnames(workdata), lhs_vars$lhs)
-exog_row <- workdata[cutoff_index, exog_vars]
-
-ini_guess_prevdata <- workdata[cutoff_index - 1, ] %>% 
-  ungroup() %>% 
-  dplyr::select(any_of(str_trim(lhs_vars$lhs)))
-
-ini_guess_v <- as.numeric(as.vector(ini_guess_prevdata))
-
-cat("Initial guess:\n", colnames(ini_guess_prevdata), "\n", ini_guess_v, ".\n If NAs are spotted (except year for now...), check the data. Missing series?")
-
-exog_row
+run_df_out = run_parse_eval(2)
+initial_data = cbind(initial_data, run_df_out)
 
 ```
 
+
 ```{r}
-# This is the old one (v3). upd modified, main
+
 eq_test <- function(x, eq_strs) {
-  # Define Independent Vars
   for (i in 1:nrow(lhs_vars)) {
-    assign(lhs_vars$lhs[i], x[i], envir = .GlobalEnv)
-    # cat(lhs_vars$lhs[i], "=", x[i], "\n")
+    assign(lhs_vars$lhs[i], x[i])
   }
   
-  colnames <- colnames(exog_row)
-  
-  # Set Exogenous Vars
   for (i in 1:ncol(exog_row)) {
-    col_name <- colnames[i]
-    # ?
-    col_name = gsub("`", "", col_name)
-    col_name = trimws(col_name)
+    col_name <- colnames(exog_row)[i]
     var_value <- unlist(as.vector(exog_row[1, i]))
-    # print(var_value[[1]])
 
     if (!is.finite(var_value)) {
       next
     }
-
-    assign(col_name, var_value[[1]], envir = .GlobalEnv)
-    # cat(col_name, "=", var_value[[1]], "\n")
+    
+    assign(col_name, var_value, envir = .GlobalEnv)
   }
-
+  
   eqs <- sapply(eq_strs, function(eq_str) {
     result <- tryCatch(
       {
-        eval(parse(text = eq_str), envir = .GlobalEnv)
+        eval(parse(text = eq_str))
       },
       error = function(e) {
         cat("Error in equation:", eq_str, "\n")
@@ -486,26 +446,65 @@ eq_test <- function(x, eq_strs) {
     )
     
     if (any(is.na(result))) {
-      cat("NA/NaN result in equation:", eq_str, "\n")
+      # cat("NA/NaN result in equation:", eq_str, "\n")
     }
-
+    
     return(result)
   })
-
+  
   return(eqs)
 }
 
-solution <- nleqslv(x = ini_guess_v, fn = function(x) eq_test(x, eq_strs),
-                    method = "Newton", jacobian = F)
+workdata = initial_data
 
-solution$x - ini_guess_prevdata
+
+workdata$dum_2022 = 1
+workdata$dum_lfs = 1
+
+
+cutoff_index <- which(workdata$year == cutoff) # add warnings when cutoff and date range do not intersect
+workdata = workdata %>% select(-year)
+exog_vars <- setdiff(colnames(workdata), lhs_vars$lhs)
+exog_row <- workdata[cutoff_index, exog_vars]
+
+ini_guess_prevdata <- workdata[cutoff_index - 1, ] %>% 
+  ungroup() %>% 
+  dplyr::select(any_of(str_trim(lhs_vars$lhs)))
+
+ini_guess_v <- as.numeric(as.vector(ini_guess_prevdata))
+ini_guess_v <- replace(ini_guess_v, is.na(ini_guess_v), 0)
+
+cat("Initial guess:\n")
+for (i in 1:ncol(ini_guess_prevdata)) {
+  cat(colnames(ini_guess_prevdata)[i], "\n", ini_guess_v[i], "\n")
+}
+cat("If NAs are spotted (except year for now...), check the data. Missing series?")
+
+exog_row
+
+# Use nleqslv to find the solution
+solution <- nleqslv(x = ini_guess_v, fn = function(x) eq_test(x, eq_strs),
+                    method = "Newton", jacobian = TRUE)
+
+solution$x
 
 output <- data.frame(matrix(solution$x, nrow = 1))
 true_colnames = colnames(ini_guess_prevdata)
 colnames(output) <- true_colnames
-
-
 ```
+
+```{r}
+# xvec = eval(parse(text = "workdata$cons_yoy-(0.0456145417269547*workdata$wages_yoy+0.303822480054576+0.855691652862175*workdata$eu_gdp_yoy-0.0877041887377428*workdata$cpi_yoy+0.0730312627317391*workdata$loans_hh)"))
+# print(xvec)
+# 
+# proofdata = read_excel(path ="mkd data 07.2023.xlsx")
+# proofdata = proofdata %>% filter(`...1` %in% workdata$year)
+# cpi_yoy = proofdata$CPI_YOY
+# 
+# cons_yoy=(0.0456145417269547*workdata$wages_yoy+0.303822480054576+0.855691652862175*workdata$eu_gdp_yoy-0.0877041887377428*cpi_yoy+0.0730312627317391*workdata$loans_hh)
+# cons_yoy
+```
+
 
 
 # Add the forecasted dependent variables to the overall data; recalculate lags with new input available

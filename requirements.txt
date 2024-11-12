@@ -125,3 +125,5 @@ Werkzeug==3.0.3
 xlrd==2.0.1
 XlsxWriter==3.2.0
 yarg==0.1.9
+
+scikit-learn~=1.5.2
