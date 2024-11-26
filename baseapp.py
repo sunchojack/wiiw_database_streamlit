@@ -4,26 +4,30 @@ import pickle
 import random
 import streamlit as st
 import pandas as pd
-import openpyxl
 from flask import session
 from streamlit_extras.grid import grid
 from st_aggrid import AgGrid, GridOptionsBuilder
 import warnings
+import openpyxl
+import re
+from docx import Document
+from collections import defaultdict
+from io import BytesIO
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 st.set_page_config(layout="wide")
 
 
-# core interface goes here:
-# main page (streamlit data displayer + dropdowns)
-# "choose country" dropdown
-# buttons: randomize lids, block variable (user-defined var)
-def mainpage():
-    def parse_formulas():
-        pass  # парсер формул, тупа код. нажал кнопку - едем. генерит файл, дает скачать, вставляет его в сайдбаровские формулы
+def to_excel_custom_wTechstring(df, techstring_out):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, sheet_name='Data', index=False)
+        # Write the techstring as a DataFrame in the second sheet
+        pd.DataFrame({'TechString': [techstring_out]}).to_excel(writer, sheet_name='Summary', index=False)
+    return output.getvalue()
 
-    # if not st.session_state['grid_data']:
-    #     st.session_state['grid_data'] = []
+
+def mainpage():
 
     maintab, manualvartab, debugtab = st.tabs(['Main', 'ManualVar', 'Debug'])
 
@@ -37,7 +41,7 @@ def mainpage():
         with dash:
             st.subheader('   ')
         with col_endy:
-            st.number_input('End', 2000, 2024, key='endy', value=2020)
+            st.number_input('Last Known', 2000, 2024, key='endy', value=2020)
         with col_endq:
             st.number_input('Q', 1, 4, key='endq', value=4)
 
@@ -45,13 +49,14 @@ def mainpage():
 
         if st.session_state.get('sidebar_done', False):
             variables = st.session_state['formulas']
+            print(variables)
             dbkeys = st.session_state['dbkeys']
             excel_defaults = st.session_state['excel_defaults_onecountry']
             most_frequent_country_code = excel_defaults['reporter'].mode().iloc[
                 0]  # set this as the default option for ccode dropdowns
 
             try:
-                country_dictionary = pd.read_csv('country_dictionary.csv')
+                country_dictionary = pd.read_csv('streamlit_assets/country_dictionary.csv')
                 most_frequent_country_name = \
                     country_dictionary[country_dictionary['code'] == most_frequent_country_code]['name'].iloc[0]
             except Exception as e:
@@ -190,8 +195,13 @@ def mainpage():
                     st.session_state[f"lid_{value}"] = "USERVAR"
 
                 if not var_blocked:
-                    my_grid.selectbox('eop', options=['avg', 'eop'], index=0,
-                                                   key=f'periodflag_{value}', label_visibility='hidden')
+                    if value in ['ir', 'eu_ir', 'loans_hh', 'pub_debt']:
+                        my_grid.selectbox('r', options=['avg', 'eop'], index=1,
+                                          key=f'periodflag_{value}', label_visibility='hidden')
+                    else:
+                        my_grid.selectbox('eop', options=['avg', 'eop'], index=0,
+                                          key=f'periodflag_{value}', label_visibility='hidden')
+
                 else:
                     my_grid.text(f"USERVAR")
                     st.session_state[f"periodflag_{value}"] = "USERVAR"
@@ -222,13 +232,16 @@ def mainpage():
                         })
 
                 else:
-                    alllids = st.session_state['dbkeys'].lid
+                    # Randomizing within country lids only!
+                    forrand_country_chosen = most_frequent_country_name
+                    forrand_country_db = dbkeys[dbkeys['reporter'] == forrand_country_chosen]
+                    forrand_country_lids = forrand_country_db['lid'].unique()
 
                     for value in variables['x']:
-                        country = st.session_state.get(f"country_{value}", "random")
+                        country = st.session_state.get(f"country_{value}", forrand_country_chosen)
                         indicator = st.session_state.get(f"indicator_{value}", "random")
                         unit = st.session_state.get(f"unit_{value}", "random")
-                        lid = st.session_state.get(f"lid_{value}", random.choice(alllids))
+                        lid = st.session_state.get(f"lid_{value}", random.choice(forrand_country_lids))
                         periodflag = st.session_state.get(f"periodflag_{value}", "NA")
 
                         alldata.append({
@@ -242,13 +255,19 @@ def mainpage():
 
                 # Create a DataFrame from the collected data
                 df_alldata = pd.DataFrame(alldata)
-
-                # Display the DataFrame
                 st.dataframe(df_alldata, use_container_width=True)
 
-                # Provide a download button
-                csv_data = df_alldata.to_csv(index=False)
-                st.download_button(label="Download Data", data=csv_data, file_name="streamlit_out.csv", mime="text/csv")
+                starty_out = int(st.session_state['starty'])
+                startq_out = int(st.session_state['startq'])
+                endy_out = int(st.session_state['endy'])
+                endq_out = int(st.session_state['endq'])
+                techstring_out = f"{starty_out}Q{startq_out}//{endy_out}Q{endq_out}"
+
+                # Print or log the result
+                print(techstring_out)
+
+                xlsx_data = to_excel_custom_wTechstring(df_alldata, techstring_out)
+                st.download_button(label="Download Data", data=xlsx_data, file_name="streamlit_out.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
         with manualvartab:
 
@@ -331,14 +350,14 @@ def mainpage():
                         uservar_lid_pairs.append((uservar, lid))
 
                 if uservar_lid_pairs:
-                    with open('uservar_lid_pairs.csv', 'w', newline='') as csvfile:
+                    with open('streamlit_assets/uservar_lid_pairs.csv', 'w', newline='') as csvfile:
                         csvwriter = csv.writer(csvfile)
                         csvwriter.writerow(['value', 'lid'])  # Write header
                         csvwriter.writerows(uservar_lid_pairs)  # Write data
 
                     st.dataframe(uservar_lid_pairs)
 
-                    with open('uservar_lid_pairs.csv', 'rb') as file:
+                    with open('streamlit_assets/uservar_lid_pairs.csv', 'rb') as file:
                         st.download_button('Download CSV', file, file_name='lid_uservar_pairs.csv')
 
                 out_blocked = []
@@ -381,22 +400,148 @@ def mainpage():
 
 
 def sidepage():
-    """
-    side page for data upload
 
-    :return:
-    """
+    def parse_formulas(formulas_file):
+        def convert_lag_notation(formula):
+            # Convert lag(x, number) to `lag(x, number)`
+            pattern1 = r"lag\((\w+),\s*(-?\d+)\)"
+            formula = re.sub(pattern1, r"`lag(\1,\2)`", formula)
+
+            # Handle lags written as x(-number)
+            pattern2 = r"(\w+)\(\s*-\s*(\d+)\s*\)"
+            formula = re.sub(pattern2, r"`lag(\1,\2)`", formula)  # Convert to lag format without '-'
+
+            return formula
+
+        def convert_log_notation(formula):
+            pattern = r"log\((\w+)\)"
+            return re.sub(pattern, r"`log(\1)`", formula)
+
+        def convert_exp_notation(formula):
+            pattern = r"exp\((\w+)\)"
+            return re.sub(pattern, r"`exp(\1)`", formula)
+
+        # Check if file is passed correctly
+        print("Formulas file received:", formulas_file)
+
+        # Try opening the docx file
+        try:
+            doc = Document(formulas_file)
+            formulas = [para.text.lower() for para in doc.paragraphs if para.text.strip()]
+            print("Extracted formulas:", formulas)
+        except Exception as e:
+            print("Error reading file:", e)
+            return None, None
+
+        # Ensure formulas are processed
+        if not formulas:
+            print("No formulas found in document.")
+            return None, None
+
+        # Process formulas
+        formulas = [formula.replace("=", "~").replace(" ", "") for formula in formulas]
+        formulas = [convert_lag_notation(formula) for formula in formulas]
+        formulas = [convert_log_notation(formula) for formula in formulas]
+        formulas = [convert_exp_notation(formula) for formula in formulas]
+
+        # Check processed formulas
+        print("Processed formulas:", formulas)
+
+        # Extract variables
+        word_vector = [
+            re.findall(r"`[^`]+`|\b(?:[a-zA-Z_]+\d*[a-zA-Z_]*|\d+[a-zA-Z_]+(?:\.\d+)?|[a-zA-Z_]+(?:\.\d+)?)\b", formula)
+            for formula in formulas
+        ]
+        print("Extracted word vector:", word_vector)
+        word_vector = list(set([item for sublist in word_vector for item in sublist]))
+        print("Unique word vector:", word_vector)
+
+        # Create DataFrame
+        vars_n_DBvars_fetched = defaultdict(list)
+        for var in word_vector:
+            if var.startswith("`lag"):
+                vars_n_DBvars_fetched['lag'].append(var)
+                # Extract the variable inside lag and add to 'x'
+                inner_var = re.search(r"`lag\(([^,]+),", var)
+                if inner_var:
+                    vars_n_DBvars_fetched['x'].append(inner_var.group(1))
+            elif var.startswith("`log"):
+                vars_n_DBvars_fetched['log'].append(var)
+                # Extract the variable inside log and add to 'x'
+                inner_var = re.search(r"`log\(([^)]+)\)", var)
+                if inner_var:
+                    vars_n_DBvars_fetched['x'].append(inner_var.group(1))
+            elif var.startswith("`exp"):
+                vars_n_DBvars_fetched['exp'].append(var)
+                # Extract the variable inside exp and add to 'x'
+                inner_var = re.search(r"`exp\(([^)]+)\)", var)
+                if inner_var:
+                    vars_n_DBvars_fetched['x'].append(inner_var.group(1))
+            else:
+                vars_n_DBvars_fetched['x'].append(var)
+
+        # Pad shorter lists with None to ensure equal length
+        max_length = max(len(v) for v in vars_n_DBvars_fetched.values())
+        for key in vars_n_DBvars_fetched:
+            vars_n_DBvars_fetched[key].extend([None] * (max_length - len(vars_n_DBvars_fetched[key])))
+
+        df = pd.DataFrame(vars_n_DBvars_fetched)
+
+        # Remove duplicates and clean up DataFrame
+        for col in df.columns:
+            df[col] = df[col].drop_duplicates().reset_index(drop=True)
+        df = df.dropna(axis=0, how='all')
+
+        required_columns = ['x', 'lag', 'log', 'exp']
+        for col in required_columns:
+            if col not in df.columns:
+                df[col] = None
+
+        df = df[['x', 'lag', 'log', 'exp']]  # Reorder columns to match required order
+        print("Generated DataFrame:", df)
+
+        # Save cleaned formulas to DOCX
+        doc = Document()
+        for formula in formulas:
+            doc.add_paragraph(formula)
+        docx_buffer = BytesIO()
+        doc.save(docx_buffer)
+        docx_buffer.seek(0)
+
+        return df, docx_buffer
 
     with st.sidebar:
         st.header('File uploads')
-        # st.subheader(')
         choice_formulas = st.selectbox(label='Formulas', options=['mine', 'default'])
         if choice_formulas == 'mine':
             formulas = st.file_uploader('Upload the docx', type='docx')
-            st.session_state['formulas'] = formulas
+            st.session_state['formulas_userinput'] = formulas
             st.session_state['formula_parser_needed'] = True
+            with st.expander('Formula (docx) Parser'):
+                goparse_button = st.button('Go')
+                if goparse_button:
+                    formulas_to_parse = st.session_state['formulas_userinput']
+                    formulas_parsed, cleaned_formulas = parse_formulas(formulas_to_parse)
+                    st.session_state['formula_parser_needed'] = False
+                    print(st.session_state['formula_parser_needed'])
+                    st.session_state['formulas'] = formulas_parsed
+                    st.session_state['formulas_userinput'] = None
+                    if not isinstance(formulas_parsed, type(None)):
+                        if not formulas_parsed.empty:
+                            file_path = "formulas_parsed.csv"  # Fixed file name
+                            formulas_parsed.to_csv(file_path, index=False)  # Overwrite if file exists
+
+                            with open(file_path, "rb") as file:
+                                st.download_button('Download CSV', data=file, file_name='formulas_parsed.csv',
+                                                   mime='text/csv')
+
+                            # DOCX download button
+                            st.download_button('Download Clean Formulas', data=cleaned_formulas,
+                                               file_name='cleaned_formulas.docx',
+                                               mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                            st.write(formulas_parsed)
         elif choice_formulas == 'default':
-            formulas = pd.read_excel('formulas_mapped.xlsx', engine='openpyxl')
+            formulas = pd.read_excel('streamlit_assets/formulas_mapped.xlsx', engine='openpyxl')
             if 'Unnamed: 0' in formulas.columns:
                 formulas.drop('Unnamed: 0', axis=1, inplace=True)
             st.session_state['formulas'] = formulas
@@ -410,17 +555,17 @@ def sidepage():
             st.session_state['excel_defaults'] = excel_defaults
             st.session_state['excel_loaded'] = True
         elif choice_excel == 'default':
-            excel_defaults = pd.read_excel('excel_defaults_mapped.xlsx', sheet_name=None, engine='openpyxl')
+            excel_defaults = pd.read_excel('streamlit_assets/excel_defaults_mapped.xlsx', sheet_name=None, engine='openpyxl')
             st.session_state['excel_defaults'] = excel_defaults
             st.session_state['excel_loaded'] = True
         else:
             pass
 
-        if st.session_state['excel_loaded']:
-            country_dictionary = pd.read_csv('country_dictionary.csv')
+        if st.session_state.get('excel_loaded'):
+            country_dictionary = pd.read_csv('streamlit_assets/country_dictionary.csv')
             country_dictionary = country_dictionary._append({'name': 'Türkiye', 'code': 'TR'}, ignore_index=True)
             country_dictionary.drop_duplicates(inplace=True)
-            available_codes = excel_defaults.keys()  # Get the available sheet names (codes)
+            available_codes = excel_defaults.keys()
             country_dictionary = country_dictionary[country_dictionary['code'].isin(available_codes)]
             country_selector = st.selectbox('Country:', options=country_dictionary['name'])
 
@@ -428,11 +573,9 @@ def sidepage():
                 selected_code = country_dictionary[country_dictionary['name'] == country_selector]['code']
 
                 if len(selected_code) == 1:
-                    selected_code
                     proper_code = str(selected_code.iloc[0])
-
                     try:
-                        excel_defaults_countryfiltered = pd.read_excel('excel_defaults_mapped.xlsx',
+                        excel_defaults_countryfiltered = pd.read_excel('streamlit_assets/excel_defaults_mapped.xlsx',
                                                                        sheet_name=proper_code, engine='openpyxl')
                         st.session_state['excel_defaults_onecountry'] = excel_defaults_countryfiltered
                     except ValueError as e:
@@ -440,24 +583,27 @@ def sidepage():
 
         choice_dbkeys = st.selectbox(label='DB Keys', options=['default', 'mine'])
         if choice_dbkeys == 'mine':
-            dbkeys = st.file_uploader('Upload db keys', type='csv')
+            dbkeys = st.file_uploader('Upload db keys (proper_M)', type='csv')
             st.session_state['dbkeys'] = dbkeys
         elif choice_dbkeys == 'default':
-            dbkeys = pd.read_csv('database_mapping.csv')
+            dbkeys = pd.read_csv('streamlit_assets/proper_M.csv')
             st.session_state['dbkeys'] = dbkeys
         else:
             pass
 
     if all(value is not None for value in
-           [st.session_state.get('formulas'), st.session_state.get('excel_defaults_onecountry'),
+           [st.session_state.get('formulas'),
+            st.session_state.get('excel_defaults_onecountry'),
             st.session_state.get('dbkeys')]):
 
+        # if st.sidebar.button('Generate/update'):
+        #     if st.session_state['formula_parser_needed'] is True:
+        #         st.error('Parse your formulas first.')
+        #     else:
+        #         st.session_state['sidebar_done'] = True
+
         if st.sidebar.button('Generate/update'):
-            if st.session_state['formula_parser_needed']:
-                st.text('ERROR! PARSE YOUR FORMULAS FIRST: <BUTTON>')
-                st.session_state['sidebar_done'] = False
-            else:
-                st.session_state['sidebar_done'] = True
+            st.session_state['sidebar_done'] = True
 
 
 if __name__ == '__main__':
