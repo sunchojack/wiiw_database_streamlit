@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 from flask import session
 from streamlit_extras.grid import grid
-from st_aggrid import AgGrid, GridOptionsBuilder
+from streamlit_aggrid import AgGrid, GridOptionsBuilder
 import warnings
 import openpyxl
 import re
